@@ -185,17 +185,6 @@ int main(void)
   printf("A Simple MQTT Client Publish/Subscription Application using W5500!\r\n");
   w5500_spi_init();
 
-  // Need this.  I noticed that if I BP'ed and single-stepped on CN_SET_NETINFO
-  // the netinfo will be registered properly, otherwise the reg is zero, leading
-  // to socket() failing later.
-  HAL_Delay(1500);
-
-  // Load netinfo to W5500
-  ctlnetwork(CN_SET_NETINFO, (void *)&netinfo);
-
-  //HAL_Delay(100);
-
-  //ctlnetwork(CN_GET_NETINFO, (void *)&getinfo);
 
   // Configure PHY by software
   wiz_PhyConf phyconf;
@@ -209,6 +198,11 @@ int main(void)
 
   phy_status_check();
   phy_print_conf();
+
+  // Load netinfo to W5500
+  ctlnetwork(CN_SET_NETINFO, (void *)&netinfo);
+
+  //ctlnetwork(CN_GET_NETINFO, (void *)&getinfo);
 
   // MQTT client part
   connect_data.willFlag = 0;
@@ -319,7 +313,7 @@ void on_topic_temp (MessageData * msg_data)
 
 void on_topic_humidity (MessageData * msg_data)
 {
-	printf("New msg on topic room/temp\r\n");
+	printf("New msg on topic room/humidity\r\n");
 }
 
 void serial_write (const char data)
