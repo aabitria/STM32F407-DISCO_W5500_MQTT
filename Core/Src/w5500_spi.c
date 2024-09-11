@@ -81,8 +81,6 @@ void w5500_spi_init(void)
 
 	/* Reset the W5500 via a pulse on RST line */
 	HAL_GPIO_WritePin(RST_GPIO_Port, RST_Pin, GPIO_PIN_RESET);
-	//tmp = 0xFF;
-	//while (tmp--);
 	HAL_Delay(2);
 	HAL_GPIO_WritePin(RST_GPIO_Port, RST_Pin, GPIO_PIN_SET);
 
