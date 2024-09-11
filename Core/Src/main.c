@@ -29,6 +29,7 @@
 #include "wizchip_conf.h"
 #include "socket.h"
 #include "string.h"
+#include "dhcp.h"
 #include "MQTTClient.h"
 #include "mqtt_interface.h"
 /* USER CODE END Includes */
@@ -41,8 +42,11 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 //#define LISTEN_PORT			(5000)
-#define RECEIVE_BUFF_SIZE	(256)
-#define SEND_BUFF_SIZE		RECEIVE_BUFF_SIZE
+#define RECEIVE_BUFF_SIZE		(256)
+#define SEND_BUFF_SIZE			RECEIVE_BUFF_SIZE
+#define DHCP_BUFF_SIZE      	(2048)
+#define SOCKET_APP				(1)
+#define SOCKET_DHCP      		(7)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -72,6 +76,11 @@ MQTTPacket_connectData connect_data = MQTTPacket_connectData_initializer;
 //MQTTMessage msg = {QOS0, 1, 0, 1, "Alvin Pogi", 14};
 
 uint8_t sendbuff[SEND_BUFF_SIZE], receivebuff[RECEIVE_BUFF_SIZE];
+uint8_t dhcp_buffer[DHCP_BUFF_SIZE];
+
+int ip_init_flag = 0;
+int mqtt_init_flag = 0;
+
 
 /* USER CODE END PV */
 
@@ -147,6 +156,94 @@ static void print_broker_ip (void)
 			);
 
 }
+
+static void mqtt_broker_connect (void)
+{
+	connect_data.willFlag = 0;
+	connect_data.MQTTVersion = 3;
+	connect_data.clientID.cstring = "stm32f407_w5500";
+	//connect_data.username.cstring = opts.username;
+	//connect_data.password.cstring = opts.password;
+
+	connect_data.keepAliveInterval = 60;
+	connect_data.cleansession = 1;
+
+	// 1 is the socket to use
+	NewNetwork(&network, 1);  // 1 is the socket to use
+	print_broker_ip();
+
+	// Connect on both TCP/IP levels
+	printf("Connecting to MQTT Broker...\r\n");
+	if (ConnectNetwork(&network, destination_ip, destination_port) != SOCK_OK) {
+		printf("ERROR: Cannot connect to MQTT Broker!\r\n");
+		while(1);
+	}
+
+	printf("SUCCESS\r\n");
+}
+
+static void mqtt_client_init (void)
+{
+	MQTTClientInit(&mqtt_client, &network, 1000, sendbuff, 256, receivebuff, 256);
+
+	printf("Sending connect packet\r\n");
+
+	if (MQTTConnect(&mqtt_client, &connect_data) != MQTT_SUCCESS) {
+		printf("ERROR!\r\n");
+		while(1);
+	}
+}
+
+static void mqtt_subscribe_topics (void)
+{
+	// Subscribe to topic and register callback
+	MQTTSubscribe(&mqtt_client, "room/temp", QOS0, on_topic_temp);
+	printf("Subscribed to topic room/temp\r\n");
+
+	MQTTSubscribe(&mqtt_client, "room/humidity", QOS0, on_topic_humidity);
+	printf("Subscribed to topic room/humidity\r\n");
+
+	return;
+}
+
+void display_network_configurations(void)
+{
+	wiz_NetInfo info;
+
+	ctlnetwork(CN_GET_NETINFO, (void*)&info);
+
+	printf(" MAC         : %02X:%02X:%02X:%02X:%02X:%02X\n", info.mac[0], info.mac[1], info.mac[2], info.mac[3], info.mac[4], info.mac[5]);
+	printf(" IP          : %d.%d.%d.%d\n", info.ip[0], info.ip[1], info.ip[2], info.ip[3]);
+	printf(" Subnet Mask : %d.%d.%d.%d\n", info.sn[0], info.sn[1], info.sn[2], info.sn[3]);
+	printf(" Gateway     : %d.%d.%d.%d\n", info.gw[0], info.gw[1], info.gw[2], info.gw[3]);
+	printf("====================================================================================================\n\n");
+}
+
+
+static void dhcp_ip_assigned (void)
+{
+	printf("IP obtained: \r\n");
+
+	getIPfromDHCP(netinfo.ip);
+	getGWfromDHCP(netinfo.gw);
+	getSNfromDHCP(netinfo.sn);
+	getDNSfromDHCP(netinfo.dns);
+
+	netinfo.dhcp = NETINFO_DHCP;
+
+	ctlnetwork(CN_SET_NETINFO, (void *)&netinfo);
+
+	display_network_configurations();
+
+	ip_init_flag = 1;
+}
+
+static void dhcp_init (void)
+{
+	DHCP_init(SOCKET_DHCP, dhcp_buffer);
+	reg_dhcp_cbfunc(dhcp_ip_assigned, NULL, NULL);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -199,50 +296,17 @@ int main(void)
   phy_status_check();
   phy_print_conf();
 
+  // start DHCP
+  dhcp_init();
+
+#if 0
   // Load netinfo to W5500
   ctlnetwork(CN_SET_NETINFO, (void *)&netinfo);
 
-  //ctlnetwork(CN_GET_NETINFO, (void *)&getinfo);
-
-  // MQTT client part
-  connect_data.willFlag = 0;
-  connect_data.MQTTVersion = 3;
-  connect_data.clientID.cstring = "stm32f407_w5500";
-  //connect_data.username.cstring = opts.username;
-  //connect_data.password.cstring = opts.password;
-
-  connect_data.keepAliveInterval = 60;
-  connect_data.cleansession = 1;
-
-  NewNetwork(&network, 1);  // 1 is the socket to use
-  print_broker_ip();
-
-  // Connect on both TCP/IP levels
-  printf("Connecting to MQTT Broker...\r\n");
-  if (ConnectNetwork(&network, destination_ip, destination_port) != SOCK_OK) {
-	  printf("ERROR: Cannot connect to MQTT Broker!\r\n");
-	  while(1);
-  }
-
-  printf("SUCCESS\r\n");
-
-  MQTTClientInit(&mqtt_client, &network, 1000, sendbuff, 256, receivebuff, 256);
-
-  printf("Sending connect packet\r\n");
-
-  if (MQTTConnect(&mqtt_client, &connect_data) != MQTT_SUCCESS) {
-	  printf("ERROR!\r\n");
-	  while(1);
-  }
-
-  // Subscribe to topic and register callback
-  MQTTSubscribe(&mqtt_client, "room/temp", QOS0, on_topic_temp);
-  printf("Subscribed to topic room/temp\r\n");
-
-  MQTTSubscribe(&mqtt_client, "room/humidity", QOS0, on_topic_humidity);
-  printf("Subscribed to topic room/humidity\r\n");
-
-
+  mqtt_broker_connect();
+  mqtt_client_init();
+  mqtt_subscribe_topics();
+#endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -252,8 +316,19 @@ int main(void)
     /* USER CODE END WHILE */
 	  //MQTTPublish(&mqtt_client, "test/topic1", &msg);
 	  //HAL_Delay(1000);
-	  MQTTYield(&mqtt_client, 250);
+	  DHCP_run();
 
+	  if (ip_init_flag & !mqtt_init_flag) {
+		  mqtt_broker_connect();
+		  mqtt_client_init();
+		  mqtt_subscribe_topics();
+
+		  mqtt_init_flag = 1;
+	  }
+
+	  if (ip_init_flag & mqtt_init_flag) {
+		  MQTTYield(&mqtt_client, 250);
+	  }
 	  // App specific code
     /* USER CODE BEGIN 3 */
   }
